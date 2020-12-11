@@ -79,6 +79,7 @@ export type EventName =
   | "WIDGET_DELETE_UNDO"
   | "WIDGET_COPY_VIA_SHORTCUT"
   | "WIDGET_COPY"
+  | "WIDGET_CUT_VIA_SHORTCUT"
   | "WIDGET_PASTE"
   | "WIDGET_DELETE_VIA_SHORTCUT"
   | "OPEN_HELP"
@@ -184,6 +185,17 @@ class AnalyticsUtil {
           currentOrgId: userData.currentOrganizationId,
           appId: appId,
           appName: app ? app.name : undefined,
+          source: "cloud",
+        };
+      } else {
+        const userId = userData.username;
+        if (userId !== AnalyticsUtil.cachedUserId) {
+          AnalyticsUtil.cachedAnonymoustId = sha256(userId);
+          AnalyticsUtil.cachedUserId = userId;
+        }
+        user = {
+          userId: AnalyticsUtil.cachedAnonymoustId,
+          source: "ce",
         };
       }
       finalEventData = {
@@ -209,6 +221,7 @@ class AnalyticsUtil {
           email: userData.email,
           name: userData.name,
           userId: userId,
+          source: "cloud",
         };
         AnalyticsUtil.user = userData;
         log.debug("Identify User " + userId);
@@ -220,10 +233,17 @@ class AnalyticsUtil {
           AnalyticsUtil.cachedAnonymoustId = sha256(userId);
           AnalyticsUtil.cachedUserId = userId;
         }
+        const userProperties = {
+          userId: AnalyticsUtil.cachedUserId,
+          source: "ce",
+        };
         log.debug(
           "Identify Anonymous User " + AnalyticsUtil.cachedAnonymoustId,
         );
-        windowDoc.analytics.identify(AnalyticsUtil.cachedAnonymoustId);
+        windowDoc.analytics.identify(
+          AnalyticsUtil.cachedAnonymoustId,
+          userProperties,
+        );
       }
     }
     Sentry.configureScope(function(scope) {

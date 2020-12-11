@@ -39,9 +39,7 @@ class TabsWidget extends BaseWidget<
   }
 
   static getDefaultPropertiesMap(): Record<string, string> {
-    return {
-      selectedTab: "defaultTab",
-    };
+    return {};
   }
 
   static getTriggerPropertyMap(): TriggerPropertiesMap {
@@ -161,7 +159,7 @@ class TabsWidget extends BaseWidget<
           const tabs = [
             { id: "tab1", widgetId: newTabContainerWidgetId, label: "Tab 1" },
           ];
-          this.updateWidgetProperty("tabs", JSON.stringify(tabs));
+          this.updateWidgetProperty("tabs", tabs);
         }
       }
     }

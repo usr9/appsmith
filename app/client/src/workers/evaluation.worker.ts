@@ -39,6 +39,7 @@ import {
   EvalError,
   EvalErrorTypes,
   extraLibraries,
+  unsafeFunctionForEval,
   getEntityDynamicBindingPathList,
   getWidgetDynamicTriggerPathList,
   isPathADynamicBinding,
@@ -95,6 +96,12 @@ ctx.addEventListener("message", e => {
     case EVAL_WORKER_ACTIONS.CLEAR_PROPERTY_CACHE: {
       const { propertyPath } = rest;
       clearPropertyCache(propertyPath);
+      ctx.postMessage(true);
+      break;
+    }
+    case EVAL_WORKER_ACTIONS.CLEAR_PROPERTY_CACHE_OF_WIDGET: {
+      const { widgetName } = rest;
+      clearPropertyCacheOfWidget(widgetName);
       ctx.postMessage(true);
       break;
     }
@@ -555,6 +562,7 @@ const overwriteDefaultDependentProps = (
     `${entity.widgetName}.${defaultProperty}`,
   );
   const propertyCache = getParsedValueCache(propertyPath);
+
   if (
     propertyValue === undefined ||
     propertyCache.version < defaultPropertyCache.version
@@ -768,6 +776,19 @@ const getParsedValueCache = (propertyPath: string) =>
 const clearPropertyCache = (propertyPath: string) =>
   parsedValueCache.delete(propertyPath);
 
+/**
+ * delete all values of a particular widget
+ *
+ * @param propertyPath
+ */
+export const clearPropertyCacheOfWidget = (widgetName: string) => {
+  parsedValueCache.forEach((value, key) => {
+    const match = key.match(`${widgetName}.`);
+
+    if (match) return parsedValueCache.delete(key);
+  });
+};
+
 const dependencyCache: Map<string, any[]> = new Map();
 
 function isWidget(entity: DataTreeEntity): boolean {
@@ -951,6 +972,13 @@ const evaluate = (
         // eslint-disable-next-line @typescript-eslint/ban-ts-comment
         // @ts-ignore: No types available
         self[library.accessor] = library.lib;
+      });
+
+      ///// Remove all unsafe functions
+      unsafeFunctionForEval.forEach(func => {
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore: No types available
+        self[func] = undefined;
       });
 
       const evalResult = eval(script);
@@ -1474,6 +1502,60 @@ const VALIDATORS: Record<ValidationType, Validator> = {
       isValid,
       parsed,
       message: isValid ? "" : `${WIDGET_TYPE_VALIDATION_ERROR}: Date`,
+    };
+  },
+  [VALIDATION_TYPES.DEFAULT_DATE]: (
+    dateString: string,
+    props: WidgetProps,
+    dataTree?: DataTree,
+  ): ValidationResponse => {
+    const today = moment()
+      .hour(0)
+      .minute(0)
+      .second(0)
+      .millisecond(0);
+    const dateFormat = props.dateFormat ? props.dateFormat : ISO_DATE_FORMAT;
+
+    const todayDateString = today.format(dateFormat);
+    if (dateString === undefined) {
+      return {
+        isValid: false,
+        parsed: "",
+        message:
+          `${WIDGET_TYPE_VALIDATION_ERROR}: Date ` + props.dateFormat
+            ? props.dateFormat
+            : "",
+      };
+    }
+    const parsedCurrentDate = moment(dateString, dateFormat);
+    let isValid = parsedCurrentDate.isValid();
+    const parsedMinDate = moment(props.minDate, dateFormat);
+    const parsedMaxDate = moment(props.maxDate, dateFormat);
+
+    // checking for max/min date range
+    if (isValid) {
+      if (
+        parsedMinDate.isValid() &&
+        parsedCurrentDate.isBefore(parsedMinDate)
+      ) {
+        isValid = false;
+      }
+
+      if (
+        isValid &&
+        parsedMaxDate.isValid() &&
+        parsedCurrentDate.isAfter(parsedMaxDate)
+      ) {
+        isValid = false;
+      }
+    }
+
+    const parsed = isValid ? dateString : todayDateString;
+
+    return {
+      isValid,
+      parsed,
+      message: isValid ? "" : `${WIDGET_TYPE_VALIDATION_ERROR}: Date R`,
     };
   },
   [VALIDATION_TYPES.ACTION_SELECTOR]: (

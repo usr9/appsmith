@@ -101,6 +101,7 @@ export enum EVAL_WORKER_ACTIONS {
   EVAL_SINGLE = "EVAL_SINGLE",
   EVAL_TRIGGER = "EVAL_TRIGGER",
   CLEAR_PROPERTY_CACHE = "CLEAR_PROPERTY_CACHE",
+  CLEAR_PROPERTY_CACHE_OF_WIDGET = "CLEAR_PROPERTY_CACHE_OF_WIDGET",
   CLEAR_CACHE = "CLEAR_CACHE",
   VALIDATE_PROPERTY = "VALIDATE_PROPERTY",
 }
@@ -231,3 +232,10 @@ export const isPathADynamicProperty = (
   }
   return false;
 };
+
+export const unsafeFunctionForEval = [
+  "setTimeout",
+  "fetch",
+  "setInterval",
+  "Promise",
+];

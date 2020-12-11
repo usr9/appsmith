@@ -72,7 +72,6 @@ import {
   getDeletedWidgets,
   getCopiedWidgets,
 } from "utils/storage";
-import { AppToaster } from "components/editorComponents/ToastComponent";
 import { generateReactKey } from "utils/generators";
 import { flashElementById } from "utils/helpers";
 import AnalyticsUtil from "utils/AnalyticsUtil";
@@ -86,8 +85,13 @@ import {
 import { forceOpenPropertyPane } from "actions/widgetActions";
 import { getDataTree } from "selectors/dataTreeSelectors";
 import { DataTreeWidget } from "entities/DataTree/dataTreeFactory";
-import { validateProperty } from "./evaluationsSaga";
+import {
+  validateProperty,
+  clearEvalPropertyCacheOfWidget,
+} from "./evaluationsSaga";
 import { WidgetBlueprint } from "reducers/entityReducers/widgetConfigReducer";
+import { Toaster } from "components/ads/Toast";
+import { Variant } from "components/ads/common";
 
 function getChildWidgetProps(
   parent: FlattenedWidgetProps,
@@ -224,7 +228,7 @@ function* generateChildWidgets(
 export function* addChildSaga(addChildAction: ReduxAction<WidgetAddChild>) {
   try {
     const start = performance.now();
-    AppToaster.clear();
+    Toaster.clear();
     const { widgetId } = addChildAction.payload;
 
     // Get the current parent widget whose child will be the new widget.
@@ -342,6 +346,7 @@ export function* deleteSaga(deleteAction: ReduxAction<WidgetDelete>) {
       const widgets = { ...stateWidgets };
       const stateWidget = yield select(getWidget, widgetId);
       const widget = { ...stateWidget };
+
       const stateParent: FlattenedWidgetProps = yield select(
         getWidget,
         parentId,
@@ -379,18 +384,14 @@ export function* deleteSaga(deleteAction: ReduxAction<WidgetDelete>) {
         widgetName = widget.tabName;
       }
       if (saveStatus && !disallowUndo) {
-        AppToaster.show({
-          message: `${widgetName} deleted`,
-          autoClose: WIDGET_DELETE_UNDO_TIMEOUT - 2000,
-          type: "success",
+        Toaster.show({
+          text: `${widgetName} deleted`,
           hideProgressBar: false,
-          action: {
-            text: "UNDO",
-            dispatchableAction: {
-              type: ReduxActionTypes.UNDO_DELETE_WIDGET,
-              payload: {
-                widgetId,
-              },
+          variant: Variant.success,
+          dispatchableAction: {
+            type: ReduxActionTypes.UNDO_DELETE_WIDGET,
+            payload: {
+              widgetId,
             },
           },
         });
@@ -398,6 +399,8 @@ export function* deleteSaga(deleteAction: ReduxAction<WidgetDelete>) {
           if (widgetId) flushDeletedWidgets(widgetId);
         }, WIDGET_DELETE_UNDO_TIMEOUT);
       }
+
+      yield call(clearEvalPropertyCacheOfWidget, widgetName);
 
       const finalWidgets = _.omit(
         widgets,
@@ -451,10 +454,7 @@ export function* undoDeleteSaga(action: ReduxAction<{ widgetId: string }>) {
           const parent = { ...widgets[widget.parentId] };
           if (parent.tabs) {
             try {
-              const tabs = _.isString(parent.tabs)
-                ? JSON.parse(parent.tabs)
-                : parent.tabs;
-              tabs.push({
+              parent.tabs.push({
                 id: widget.tabId,
                 widgetId: widget.widgetId,
                 label: widget.tabName || widget.widgetName,
@@ -463,7 +463,7 @@ export function* undoDeleteSaga(action: ReduxAction<{ widgetId: string }>) {
                 ...widgets,
                 [widget.parentId]: {
                   ...widgets[widget.parentId],
-                  tabs: JSON.stringify(tabs),
+                  tabs: parent.tabs,
                 },
               };
             } catch (error) {
@@ -505,7 +505,7 @@ export function* undoDeleteSaga(action: ReduxAction<{ widgetId: string }>) {
 
 export function* moveSaga(moveAction: ReduxAction<WidgetMove>) {
   try {
-    AppToaster.clear();
+    Toaster.clear();
     const start = performance.now();
     const {
       widgetId,
@@ -569,7 +569,7 @@ export function* moveSaga(moveAction: ReduxAction<WidgetMove>) {
 
 export function* resizeSaga(resizeAction: ReduxAction<WidgetResize>) {
   try {
-    AppToaster.clear();
+    Toaster.clear();
     const start = performance.now();
     const {
       widgetId,
@@ -810,11 +810,30 @@ function* updateCanvasSize(
   }
 }
 
-function* copyWidgetSaga(action: ReduxAction<{ isShortcut: boolean }>) {
+function* createWidgetCopy() {
   const selectedWidget = yield select(getSelectedWidget);
   if (!selectedWidget) return;
   const widgets = yield select(getWidgets);
   const widgetsToStore = getAllWidgetsInTree(selectedWidget.widgetId, widgets);
+  const saveResult = yield saveCopiedWidgets(
+    JSON.stringify({ widgetId: selectedWidget.widgetId, list: widgetsToStore }),
+  );
+
+  return saveResult;
+}
+
+function* copyWidgetSaga(action: ReduxAction<{ isShortcut: boolean }>) {
+  const selectedWidget = yield select(getSelectedWidget);
+  if (!selectedWidget) {
+    Toaster.show({
+      text: `Please select a widget to copy`,
+      variant: Variant.info,
+    });
+    return;
+  }
+
+  const saveResult = yield createWidgetCopy();
+
   const eventName = action.payload.isShortcut
     ? "WIDGET_COPY_VIA_SHORTCUT"
     : "WIDGET_COPY";
@@ -822,13 +841,11 @@ function* copyWidgetSaga(action: ReduxAction<{ isShortcut: boolean }>) {
     widgetName: selectedWidget.widgetName,
     widgetType: selectedWidget.type,
   });
-  const saveResult = yield saveCopiedWidgets(
-    JSON.stringify({ widgetId: selectedWidget.widgetId, list: widgetsToStore }),
-  );
+
   if (saveResult) {
-    AppToaster.show({
-      message: `Copied ${selectedWidget.widgetName}`,
-      type: "success",
+    Toaster.show({
+      text: `Copied ${selectedWidget.widgetName}`,
+      variant: Variant.success,
     });
   }
 }
@@ -985,16 +1002,12 @@ function* pasteWidgetSaga() {
       // Update the tabs for the tabs widget.
       if (widget.tabs && widget.type === WidgetTypes.TABS_WIDGET) {
         try {
-          const tabs = isString(widget.tabs)
-            ? JSON.parse(widget.tabs)
-            : widget.tabs;
+          const tabs = widget.tabs;
           if (Array.isArray(tabs)) {
-            widget.tabs = JSON.stringify(
-              tabs.map(tab => {
-                tab.widgetId = widgetIdMap[tab.widgetId];
-                return tab;
-              }),
-            );
+            widget.tabs = tabs.map(tab => {
+              tab.widgetId = widgetIdMap[tab.widgetId];
+              return tab;
+            });
           }
         } catch (error) {
           log.debug("Error updating tabs", error);
@@ -1072,12 +1085,30 @@ function* pasteWidgetSaga() {
 }
 
 function* cutWidgetSaga() {
-  yield put({
-    type: ReduxActionTypes.COPY_SELECTED_WIDGET_INIT,
-    payload: {
-      isShortcut: true, // We only have shortcut based "cut" operation today.
-    },
+  const selectedWidget = yield select(getSelectedWidget);
+  if (!selectedWidget) {
+    Toaster.show({
+      text: `Please select a widget to cut`,
+      variant: Variant.info,
+    });
+    return;
+  }
+
+  const saveResult = yield createWidgetCopy();
+
+  const eventName = "WIDGET_CUT_VIA_SHORTCUT"; // cut only supported through a shortcut
+  AnalyticsUtil.logEvent(eventName, {
+    widgetName: selectedWidget.widgetName,
+    widgetType: selectedWidget.type,
   });
+
+  if (saveResult) {
+    Toaster.show({
+      text: `Cut ${selectedWidget.widgetName}`,
+      variant: Variant.success,
+    });
+  }
+
   yield put({
     type: ReduxActionTypes.WIDGET_DELETE,
     payload: {
@@ -1154,9 +1185,9 @@ function* addTableWidgetFromQuerySaga(action: ReduxAction<string>) {
     });
     yield put(forceOpenPropertyPane(newWidget.newWidgetId));
   } catch (error) {
-    AppToaster.show({
-      message: "Failed to add the widget",
-      type: "error",
+    Toaster.show({
+      text: "Failed to add the widget",
+      variant: Variant.danger,
     });
   }
 }

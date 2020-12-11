@@ -1,5 +1,7 @@
 /// <reference types="Cypress" />
 
+require("cypress-file-upload");
+
 const loginPage = require("../locators/LoginPage.json");
 const homePage = require("../locators/HomePage.json");
 const pages = require("../locators/Pages.json");
@@ -451,7 +453,6 @@ Cypress.Commands.add("CreateSubsequentAPI", apiname => {
 });
 
 Cypress.Commands.add("EditApiName", apiname => {
-  //cy.wait("@getUser");
   cy.get(apiwidget.ApiName).click({ force: true });
   cy.get(apiwidget.apiTxt)
     .clear()
@@ -1058,6 +1059,38 @@ Cypress.Commands.add("enterActionValue", value => {
       cy.get(".CodeMirror textarea")
         .last()
         .should("have.value", value);
+    });
+});
+
+Cypress.Commands.add("enterNavigatePageName", value => {
+  cy.get("ul.tree")
+    .children()
+    .first()
+    .within(() => {
+      cy.get(".CodeMirror textarea")
+        .first()
+        .focus()
+        .type("{ctrl}{shift}{downarrow}")
+        .then($cm => {
+          if ($cm.val() !== "") {
+            cy.get(".CodeMirror textarea")
+              .first()
+              .clear({
+                force: true,
+              });
+          }
+          cy.get(".CodeMirror textarea")
+            .first()
+            .type(value, {
+              force: true,
+              parseSpecialCharSequences: false,
+            });
+          cy.wait(200);
+          cy.get(".CodeMirror textarea")
+            .first()
+            .should("have.value", value);
+        });
+      cy.root();
     });
 });
 
